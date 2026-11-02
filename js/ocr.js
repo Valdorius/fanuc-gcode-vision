@@ -381,22 +381,36 @@ Rules:
       }
     };
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey.trim()}`;
+    const models = ['gemini-3-flash-preview', 'gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-flash-latest'];
+    let lastError = null;
+    let data = null;
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody)
-    });
+    for (const model of models) {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey.trim()}`;
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+        if (response.ok) {
+          data = await response.json();
+          break;
+        } else {
+          const errJson = await response.json().catch(() => ({}));
+          lastError = errJson.error?.message || `HTTP ${response.status}`;
+        }
+      } catch (err) {
+        lastError = err.message;
+      }
+    }
 
-    if (!response.ok) {
-      const errJson = await response.json().catch(() => ({}));
-      throw new Error(errJson.error?.message || `Ошибка API Gemini (${response.status})`);
+    if (!data) {
+      throw new Error(`Ошибка API Gemini: ${lastError}`);
     }
 
     progressCallback({ status: 'ai_processing', progress: 0.8, message: 'Обработка ответа нейросети...' });
 
-    const data = await response.json();
     let text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
     // Strip markdown formatting if any slipped through
