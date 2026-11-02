@@ -377,6 +377,15 @@ body {
   cursor: pointer;
 }
 
+.crop-container {
+  position: relative;
+  overflow: hidden;
+  display: block;
+  width: 100%;
+  height: 150px;
+  border-radius: 4px;
+}
+
 .preview-box {
   background-color: #0a0e17;
   border: 1px solid var(--border-color);
@@ -392,9 +401,10 @@ body {
 }
 
 .preview-box img {
-  max-width: 100%;
-  height: 140px;
-  object-fit: contain;
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+  display: block;
   border-radius: 4px;
   background-color: #000;
 }

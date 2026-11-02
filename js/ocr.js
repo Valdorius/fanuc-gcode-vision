@@ -157,23 +157,25 @@ class FanucOCR {
 
     // METHOD A: smooth_gray (PRESERVES ANTI-ALIASING GRADIENTS) -> Highest Tesseract accuracy!
     if (method === 'smooth_gray' || method === 'crt_green' || method === 'crt_amber') {
-      // Find min and max for contrast stretching
       let minLum = 255, maxLum = 0;
       for (let k = 0; k < gray.length; k += 4) {
         if (gray[k] < minLum) minLum = gray[k];
         if (gray[k] > maxLum) maxLum = gray[k];
       }
-      const range = Math.max(10, maxLum - minLum);
+      const range = Math.max(15, maxLum - minLum);
 
       for (let i = 0, j = 0; i < outData.length; i += 4, j++) {
-        // Contrast normalize
-        let norm = ((gray[j] - minLum) / range) * 255;
-        // Invert for dark screens: text becomes dark, background becomes pure white
-        let val = invert ? (255 - norm) : norm;
+        const t = Math.max(0, Math.min(1, (gray[j] - minLum) / range));
+        // invert: true means dark screen (bright text on dark bg)
+        // For OCR: text must be black (0), background must be pure white (255)
+        let val = invert ? Math.floor((1 - t) * 255) : Math.floor(t * 255);
 
-        // Apply slight S-curve to push background to white and text to deep black
-        val = (val - 128) * 1.5 + 128;
-        val = Math.max(0, Math.min(255, Math.floor(val)));
+        // High contrast S-curve
+        if (val > 185) val = 255;
+        else if (val < 65) val = 0;
+        else {
+          val = Math.floor(((val - 65) / 120) * 255);
+        }
 
         outData[i] = val;
         outData[i + 1] = val;
@@ -185,12 +187,13 @@ class FanucOCR {
     else {
       let binarized;
       if (method === 'adaptive') {
-        binarized = this.bradleyAdaptiveThreshold(gray, width, height, 31, 0.14);
+        binarized = this.adaptiveThresholdCNC(gray, width, height, 31, invert);
       } else {
         const thresholdVal = options.threshold || 110;
         binarized = new Uint8Array(width * height);
         for (let i = 0; i < gray.length; i++) {
-          binarized[i] = gray[i] > thresholdVal ? 255 : 0;
+          const isText = invert ? (gray[i] > thresholdVal) : (gray[i] < thresholdVal);
+          binarized[i] = isText ? 0 : 255;
         }
       }
 
@@ -199,8 +202,7 @@ class FanucOCR {
       }
 
       for (let i = 0, j = 0; i < outData.length; i += 4, j++) {
-        let val = binarized[j];
-        if (invert) val = 255 - val;
+        let val = binarized[j]; // Already 0 for text (black), 255 for background (white)
         outData[i] = val;
         outData[i + 1] = val;
         outData[i + 2] = val;
@@ -213,10 +215,11 @@ class FanucOCR {
   }
 
   /**
-   * Bradley-Roth Local Adaptive Thresholding
-   * Extremely effective at removing shadows, camera flash, and uneven screen backlighting!
+   * Bradley-Roth Local Adaptive Thresholding for CNC screens
+   * Accurately segments bright text on dark screens (or dark text on light paper)
+   * into clean BLACK text (0) on pure WHITE background (255) for OCR!
    */
-  bradleyAdaptiveThreshold(gray, width, height, windowSize = 25, percentage = 0.15) {
+  adaptiveThresholdCNC(gray, width, height, windowSize = 31, isDarkScreen = true) {
     const integral = new Float64Array(width * height);
     const output = new Uint8Array(width * height);
 
@@ -235,7 +238,6 @@ class FanucOCR {
 
     const s2 = Math.floor(windowSize / 2);
 
-    // Compare each pixel to local average
     for (let y = 0; y < height; y++) {
       const y1 = Math.max(0, y - s2);
       const y2 = Math.min(height - 1, y + s2);
@@ -250,11 +252,22 @@ class FanucOCR {
                   - integral[y2 * width + x1]
                   + integral[y1 * width + x1];
 
-        if (gray[y * width + x] * count >= sum * (1.0 - percentage)) {
-          output[y * width + x] = 255;
+        const localAvg = sum / count;
+        const curVal = gray[y * width + x];
+
+        let isText = false;
+        if (isDarkScreen) {
+          // Bright text on dark background
+          const delta = Math.max(12, localAvg * 0.15);
+          isText = curVal > (localAvg + delta);
         } else {
-          output[y * width + x] = 0;
+          // Dark text on bright paper
+          const delta = Math.max(12, (255 - localAvg) * 0.15);
+          isText = curVal < (localAvg - delta);
         }
+
+        // Output: 0 for text (black), 255 for background (white)
+        output[y * width + x] = isText ? 0 : 255;
       }
     }
 
@@ -262,18 +275,17 @@ class FanucOCR {
   }
 
   /**
-   * 3x3 Morphological Dilation: expands bright foreground text by 1 pixel
+   * 3x3 Morphological Dilation of text (expands black text strokes = 0 by 1 pixel)
    */
   morphologicalDilate(binary, width, height) {
-    const out = new Uint8Array(width * height);
+    const out = new Uint8Array(binary);
     for (let y = 1; y < height - 1; y++) {
       for (let x = 1; x < width - 1; x++) {
         const idx = y * width + x;
-        if (binary[idx] === 255 ||
-            binary[idx - 1] === 255 || binary[idx + 1] === 255 ||
-            binary[idx - width] === 255 || binary[idx + width] === 255) {
-          out[idx] = 255;
-        } else {
+        // If current or any neighbor is black text (0), expand black text!
+        if (binary[idx] === 0 ||
+            binary[idx - 1] === 0 || binary[idx + 1] === 0 ||
+            binary[idx - width] === 0 || binary[idx + width] === 0) {
           out[idx] = 0;
         }
       }
