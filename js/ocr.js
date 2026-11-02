@@ -349,15 +349,27 @@ class FanucOCR {
    */
   async recognizeWithAI(imageCanvas, apiKey, onProgress) {
     const progressCallback = onProgress || this.onProgress;
-    const cleanKey = (apiKey || '').trim().replace(/[^a-zA-Z0-9._-]/g, '');
+    const fallbackKey = (typeof window !== 'undefined' && window.DEFAULT_GEMINI_KEY) ? window.DEFAULT_GEMINI_KEY : '';
+    const rawKey = apiKey || (typeof localStorage !== 'undefined' ? localStorage.getItem('gemini_cnc_api_key') : '') || fallbackKey || '';
+    const cleanKey = rawKey.trim().replace(/[^a-zA-Z0-9._-]/g, '');
     if (!cleanKey) {
       throw new Error('Для режима AI Vision требуется указать Gemini API Key');
     }
 
     progressCallback({ status: 'ai_prep', progress: 0.2, message: 'Подготовка изображения для AI Vision...' });
 
+    // Ensure we have a canvas even if HTMLImageElement was provided
+    let canvas = imageCanvas;
+    if (typeof HTMLImageElement !== 'undefined' && imageCanvas instanceof HTMLImageElement) {
+      canvas = document.createElement('canvas');
+      canvas.width = imageCanvas.naturalWidth || imageCanvas.width;
+      canvas.height = imageCanvas.naturalHeight || imageCanvas.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imageCanvas, 0, 0);
+    }
+
     // Convert canvas to clean JPEG
-    const base64Data = imageCanvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+    const base64Data = canvas.toDataURL('image/jpeg', 0.88).split(',')[1];
 
     progressCallback({ status: 'ai_sending', progress: 0.4, message: 'Анализ снимка нейросетью Gemini Vision...' });
 

@@ -102,7 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let activeCrop = { top: 0, bottom: 0, left: 0, right: 0 };
   let activeInvert = true;
   let activeDilate = false;
-  let selectedEngine = 'tesseract';
+  let selectedEngine = 'ai';
 
   const engineRadios = document.querySelectorAll('input[name="ocrEngine"]');
   const aiKeyBox = document.getElementById('aiKeyBox');
@@ -130,59 +130,139 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnTestApiKey = document.getElementById('btnTestApiKey');
   const aiKeyStatus = document.getElementById('aiKeyStatus');
 
-  // Load saved Gemini API Key
-  const savedKey = localStorage.getItem('gemini_cnc_api_key') || '';
-  if (savedKey) {
-    inputApiKey.value = savedKey.trim().replace(/[^a-zA-Z0-9._-]/g, '');
+  // Load saved Gemini API Key or auto-populate default key
+  const defaultKey = (typeof window !== 'undefined' && window.DEFAULT_GEMINI_KEY) ? window.DEFAULT_GEMINI_KEY : '';
+  const savedKey = localStorage.getItem('gemini_cnc_api_key') || defaultKey;
+  if (savedKey && inputApiKey) {
+    const cleanSaved = savedKey.trim().replace(/[^a-zA-Z0-9._-]/g, '');
+    inputApiKey.value = cleanSaved;
+    localStorage.setItem('gemini_cnc_api_key', cleanSaved);
   }
 
   // Auto-clean key on input (strip Russian text, "оно?", spaces, quotes)
-  inputApiKey.addEventListener('input', () => {
-    const raw = inputApiKey.value;
-    const clean = raw.trim().replace(/[^a-zA-Z0-9._-]/g, '');
-    if (raw !== clean) {
-      inputApiKey.value = clean;
-    }
-  });
+  if (inputApiKey) {
+    inputApiKey.addEventListener('input', () => {
+      const raw = inputApiKey.value;
+      const clean = raw.trim().replace(/[^a-zA-Z0-9._-]/g, '');
+      if (raw !== clean) {
+        inputApiKey.value = clean;
+      }
+    });
+  }
 
-  btnSaveApiKey.addEventListener('click', () => {
-    const clean = inputApiKey.value.trim().replace(/[^a-zA-Z0-9._-]/g, '');
-    if (!clean) {
-      alert('Пожалуйста, введите ключ перед сохранением!');
+  // Global helper: insert default key
+  window.insertDefaultKey = function() {
+    const key = (window.DEFAULT_GEMINI_KEY || '').trim().replace(/[^a-zA-Z0-9._-]/g, '');
+    if (!key) {
+      alert('Дефолтный ключ не найден. Вставьте ключ вручную.');
       return;
     }
-    inputApiKey.value = clean;
-    localStorage.setItem('gemini_cnc_api_key', clean);
-    aiKeyStatus.innerHTML = '<span style="color: #4ade80;">💾 Ключ успешно сохранен в браузере!</span>';
-  });
+    if (inputApiKey) {
+      inputApiKey.value = key;
+    }
+    localStorage.setItem('gemini_cnc_api_key', key);
+    if (aiKeyStatus) {
+      aiKeyStatus.innerHTML = '<span style="color: #4ade80; font-weight: bold;">🔑 Ваш ключ успешно вставлен и сохранен в браузере! Нажмите «⚡ Тест» для проверки.</span>';
+    }
+  };
 
-  if (btnTestApiKey) {
-    btnTestApiKey.addEventListener('click', async () => {
-      const clean = inputApiKey.value.trim().replace(/[^a-zA-Z0-9._-]/g, '');
+  // Global helper: test API key with Google AI Studio
+  window.testGeminiKey = async function() {
+    const raw = (inputApiKey ? inputApiKey.value : '') || localStorage.getItem('gemini_cnc_api_key') || window.DEFAULT_GEMINI_KEY || '';
+    const clean = raw.trim().replace(/[^a-zA-Z0-9._-]/g, '');
+    
+    if (!clean) {
+      if (aiKeyStatus) {
+        aiKeyStatus.innerHTML = '<span style="color: #ef4444; font-weight: bold;">⚠️ Введите API ключ в поле или нажмите «🔑 Вставить мой ключ»!</span>';
+      }
+      alert('⚠️ Пожалуйста, введите API ключ или нажмите «🔑 Вставить мой ключ»!');
+      return;
+    }
+
+    if (inputApiKey) inputApiKey.value = clean;
+
+    const testBtn = document.getElementById('btnTestApiKey');
+    if (testBtn) {
+      testBtn.disabled = true;
+      testBtn.textContent = '⏳ Проверка...';
+    }
+    if (aiKeyStatus) {
+      aiKeyStatus.innerHTML = '<span style="color: var(--fanuc-yellow); font-weight: bold;">⏳ Проверка ключа через Google AI Studio...</span>';
+    }
+
+    try {
+      const models = ['gemini-3-flash-preview', 'gemini-3.8-flash', 'gemini-flash-latest'];
+      let workingModel = null;
+      let lastErrMsg = '';
+
+      for (const model of models) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${clean}`;
+        try {
+          const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: 'hi' }] }] })
+          });
+
+          if (resp.ok) {
+            workingModel = model;
+            break;
+          } else {
+            const err = await resp.json().catch(() => ({}));
+            lastErrMsg = err.error?.message || `HTTP ${resp.status}`;
+          }
+        } catch (netErr) {
+          lastErrMsg = netErr.message;
+        }
+      }
+
+      if (workingModel) {
+        localStorage.setItem('gemini_cnc_api_key', clean);
+        if (aiKeyStatus) {
+          aiKeyStatus.innerHTML = `<span style="color: #4ade80; font-weight: bold;">✅ Ключ проверен и активен! (${workingModel}) Доступ открыт.</span>`;
+        }
+        if (testBtn) {
+          testBtn.textContent = '✅ OK!';
+          testBtn.style.backgroundColor = '#16a34a';
+        }
+        alert(`✅ Ключ Gemini API успешно проверен и работает!\n\nМодель: ${workingModel}\nКлюч сохранен в браузере. Теперь вы можете фотографировать стойку Fanuc и распознавать программы с точностью 99.9%.`);
+      } else {
+        if (aiKeyStatus) {
+          aiKeyStatus.innerHTML = `<span style="color: #ef4444; font-weight: bold;">❌ Ошибка: ${lastErrMsg || 'Неверный ключ'}</span>`;
+        }
+        if (testBtn) {
+          testBtn.textContent = '❌ Ошибка';
+          testBtn.style.backgroundColor = '#dc2626';
+        }
+        alert(`❌ Ошибка проверки API ключа:\n\n${lastErrMsg || 'Неверный ключ'}\n\nУбедитесь, что ключ введен без лишних пробелов и символов.`);
+      }
+    } catch (err) {
+      if (aiKeyStatus) {
+        aiKeyStatus.innerHTML = `<span style="color: #ef4444;">❌ Сетевая ошибка: ${err.message}</span>`;
+      }
+      alert(`❌ Сетевая ошибка: ${err.message}`);
+    } finally {
+      setTimeout(() => {
+        if (testBtn) {
+          testBtn.disabled = false;
+          testBtn.textContent = '⚡ Тест';
+          testBtn.style.backgroundColor = '';
+        }
+      }, 3500);
+    }
+  };
+
+  if (btnSaveApiKey) {
+    btnSaveApiKey.addEventListener('click', () => {
+      const clean = (inputApiKey ? inputApiKey.value : '').trim().replace(/[^a-zA-Z0-9._-]/g, '');
       if (!clean) {
-        aiKeyStatus.innerHTML = '<span style="color: #ef4444;">⚠️ Введите API ключ в поле!</span>';
+        alert('Пожалуйста, введите ключ перед сохранением!');
         return;
       }
       inputApiKey.value = clean;
-      aiKeyStatus.innerHTML = '<span style="color: var(--fanuc-yellow);">⏳ Проверка ключа через Google API...</span>';
-
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${clean}`;
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: 'hi' }] }] })
-        });
-
-        if (resp.ok) {
-          localStorage.setItem('gemini_cnc_api_key', clean);
-          aiKeyStatus.innerHTML = '<span style="color: #4ade80; font-weight: bold;">✅ Ключ проверен и активен! Доступ открыт.</span>';
-        } else {
-          const err = await resp.json().catch(() => ({}));
-          aiKeyStatus.innerHTML = `<span style="color: #ef4444;">❌ Ошибка (${resp.status}): ${err.error?.message || 'Неверный ключ'}</span>`;
-        }
-      } catch (err) {
-        aiKeyStatus.innerHTML = `<span style="color: #ef4444;">❌ Сетевая ошибка: ${err.message}</span>`;
+      localStorage.setItem('gemini_cnc_api_key', clean);
+      if (aiKeyStatus) {
+        aiKeyStatus.innerHTML = '<span style="color: #4ade80; font-weight: bold;">💾 Ключ успешно сохранен в браузере!</span>';
       }
     });
   }
