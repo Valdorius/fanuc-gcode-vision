@@ -66,10 +66,11 @@
             <a href="https://aistudio.google.com/app/apikey" target="_blank" style="font-size: 11px; color: var(--cnc-cyan); text-decoration: underline;">Получить ключ ↗</a>
           </div>
           <div style="display: flex; gap: 8px;">
-            <input type="password" id="inputApiKey" class="select-input" style="margin-bottom: 0;" placeholder="Вставьте AI Studio API Key...">
-            <button id="btnSaveApiKey" class="btn btn-sm">💾</button>
+            <input type="text" id="inputApiKey" class="select-input" style="margin-bottom: 0; font-family: monospace; font-size: 11px;" placeholder="Вставьте AI Studio API Key...">
+            <button id="btnTestApiKey" class="btn btn-sm btn-accent" title="Проверить ключ">⚡ Тест</button>
+            <button id="btnSaveApiKey" class="btn btn-sm" title="Сохранить">💾</button>
           </div>
-          <div style="font-size: 10px; color: var(--text-dim); margin-top: 4px;">Ключ хранится локально в вашем браузере.</div>
+          <div id="aiKeyStatus" style="font-size: 10px; color: var(--text-dim); margin-top: 4px;">Ключ хранится локально в вашем браузере.</div>
         </div>
 
         <!-- Previews & Calibration -->

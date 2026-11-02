@@ -349,7 +349,8 @@ class FanucOCR {
    */
   async recognizeWithAI(imageCanvas, apiKey, onProgress) {
     const progressCallback = onProgress || this.onProgress;
-    if (!apiKey || !apiKey.trim()) {
+    const cleanKey = (apiKey || '').trim().replace(/[^a-zA-Z0-9._-]/g, '');
+    if (!cleanKey) {
       throw new Error('Для режима AI Vision требуется указать Gemini API Key');
     }
 
@@ -386,7 +387,7 @@ Rules:
     let data = null;
 
     for (const model of models) {
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey.trim()}`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
       try {
         const response = await fetch(endpoint, {
           method: 'POST',
